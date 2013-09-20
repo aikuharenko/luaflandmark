@@ -7,6 +7,7 @@ require 'inline'
 require 'camera'
 require 'nnx'
 require 'flandmark'
+dofile('normalize_image.lua')
 
 -- parse args
 op = xlua.OptionParser('%prog [options]')
@@ -49,7 +50,7 @@ p = xlua.Profiler()
 function process()
    -- (1) grab frame
    frame = camera:forward()
-
+   
    -- (2) transform it into Y space
    --frameY = image.rgb2y(frame)
  
@@ -86,99 +87,6 @@ function display()
  
    end
    win:gend()
-end
-
-function normalize_image(im, points)
-
-	local x1 = points.bbox[1]
-	local x2 = points.bbox[1] + points.bbox[3] - 1
-	local y1 = points.bbox[2]
-	local y2 = points.bbox[2] + points.bbox[4] - 1
-	
-	local eye_x1 = (points.left_eye.x1 + points.left_eye.x2) / 2
-	local eye_y1 = (points.left_eye.y1 + points.left_eye.y2) / 2
-	local eye_x2 = (points.right_eye.x1 + points.right_eye.x2) / 2
-	local eye_y2 = (points.right_eye.y1 + points.right_eye.y2) / 2
-	
-	local eye_dist = math.sqrt( (eye_x1 - eye_x2) ^ 2 + (eye_y1 - eye_y2) ^ 2)
-	local sin_a = (eye_y2 - eye_y1) / eye_dist
-	local cos_a = (eye_x2 - eye_x1) / eye_dist
-	
-	local alpha = torch.asin(sin_a)
-	local sx = (#im)[3]
-	local sy = (#im)[2]
-	
-	local im_x1 = math.max(1, x1 - eye_dist)
-	local im_y1 = math.max(1, y1 - eye_dist)
-	local im_x2 = math.min(sx, x2 + eye_dist)
-	local im_y2 = math.min(sy, y2 + eye_dist)
-	
-	eye_x1 = eye_x1 - im_x1
-	eye_y1 = eye_y1 - im_y1
-	eye_x2 = eye_x2 - im_x1
-	eye_y2 = eye_y2 - im_y1
-	
-	local im2 = im[{{},{im_y1, im_y2}, {im_x1, im_x2}}]:clone()
-	local sx = (#im2)[3]
-	local sy = (#im2)[2]
-	local cx = sx / 2
-	local cy = sy / 2
-	
-	--rotate
-	im2 = image.rotate(im2, alpha)
-	
-	--scale
-	local sc = opt.eye_dist / eye_dist
-	im2 = image.scale(im2, sx * sc, sy * sc, 'bilinear')
-	
-	--new eyes coordinates
-	im2_left_eye_x = ((eye_x1 - cx) * cos_a + (eye_y1 - cy) * sin_a + cx) * sc
-	im2_left_eye_y = (-(eye_x1 - cx) * sin_a + (eye_y1 - cy) * cos_a + cy) * sc
-	im2_right_eye_x = ((eye_x2 - cx) * cos_a + (eye_y2 - cy) * sin_a + cx) * sc
-	im2_right_eye_y = (-(eye_x2 - cx) * sin_a + (eye_y2 - cy) * cos_a + cy) * sc
-	
-	im2_bbox = {x1, y1, x2 - x1 + 1, y2 - y1 + 1}
-	
-	--crop
-	local eye_cx = math.floor((im2_left_eye_x + im2_right_eye_x) / 2)
-	local eye_cy = math.floor(im2_left_eye_y)
-	
-	local xn1 = eye_cx - opt.dx + 1
-	local xn2 = eye_cx + opt.dx
-	local yn1 = eye_cy - opt.dtop + 1
-	local yn2 = eye_cy + opt.dbottom
-	--print(xn1, yn1, xn2, yn2, sx, sy)
-	if (xn1 < 0) then
-		local add_x = 1 - xn1
-		im2 = image.translate(im2, add_x, 0)
-		xn1 = 1
-		xn2 = xn2 + add_x
-		
-	end
-	
-	if (yn1 < 0) then
-		local add_y = 1 - yn1
-		im2 = image.translate(im2, 0, add_y)
-		yn1 = 1
-		yn2 = yn2 + add_y
-	end
-
-	if (xn2 > (#im2)[3]) then
-		local add_x = xn2 - (#im2)[3]
-		im2 = image.translate(im2, -add_x, 0)
-		xn2 = (#im2)[3]
-		xn1 = xn1 - add_x
-	end
-	
-	if (yn2 > (#im2)[2]) then
-		local add_y = yn2 - (#im2)[2]
-		im2 = image.translate(im2, 0, -add_y)
-		yn2 = (#im2)[2]
-		yn1 = yn1 - add_y
-	end
-	--print(xn1, yn1, xn2, yn2)
-	return im2[{{}, {yn1, yn2}, {xn1, xn2}}]
-	
 end
 
 function display2()
